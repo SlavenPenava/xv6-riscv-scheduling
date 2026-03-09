@@ -144,7 +144,7 @@ consoleintr(int c)
   acquire(&cons.lock);
 
   switch(c){
-  case C('P'):  // Print process list.
+  case C('T'):  // Print process list. Changed from P to T because of console conflicts in vs code
     procdump();
     break;
   case C('U'):  // Kill line.

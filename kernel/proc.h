@@ -104,4 +104,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  //MLFQ
+  //These fields must also have p->lock held when using these:
+  int priority;                // Process priority for MLFQ queues(Q0-Q4)
+  int ticks_consumed;          // Number of ticks consumed by the process at current priority level
+  int total_ticks;             // Total number of ticks consumed by the process
+  int wait_ticks;              // Number of ticks the process has been waiting in the current queue
 };

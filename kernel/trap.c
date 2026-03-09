@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+//MLFQ
+extern int priority_quanta[];
+//this is purely added for the wait_ticks debugging field and can be removed alongside
+//the wait_ticks block inside usertrap() and kerneltrap()
+extern struct proc proc[NPROC];
+
 struct spinlock tickslock;
 uint ticks;
 
@@ -81,8 +87,29 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
+  if(which_dev == 2){
+    struct proc *p = myproc();
+    //this is demotion and ticks for the running process
+    if(p != 0){
+      acquire(&p->lock);
+      p->ticks_consumed++;
+      p->total_ticks++;
+      if(p->ticks_consumed >= priority_quanta[p->priority]){
+        if(p->priority < 4){
+          p->priority++;
+        }
+        p->ticks_consumed = 0;
+        release(&p->lock);
+        yield();
+      }else{
+        release(&p->lock);
+        yield();
+      }
+    }
+    //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
+    //processes that are waiting their turn, can be removed without issues
+    if(cpuid() == 0) update_wait_ticks();
+  }
 
   prepare_return();
 
@@ -152,8 +179,29 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0)
-    yield();
+  if(which_dev == 2){
+   struct proc *p = myproc();
+   //demotion and ticks for the running process
+   if(p != 0){
+     acquire(&p->lock);
+     p->ticks_consumed++;
+     p->total_ticks++;
+     if(p->ticks_consumed >= priority_quanta[p->priority]){
+       if(p->priority < 4){
+         p->priority++;
+       }
+       p->ticks_consumed = 0;
+       release(&p->lock);
+       yield();
+     }else{
+       release(&p->lock);
+       yield();
+     }
+   }
+   //purely for debugging purposes and only serves to count ticks of all RUNNABLE
+   //processes that are waiting their turn, can be removed without issues
+   if(cpuid() == 0) update_wait_ticks();
+ }
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

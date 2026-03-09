@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+//MLFQ global variables
+int priority_quanta[]={1,2,4,16,32};
+int last_boost_tick = 0;
+extern uint ticks;
+#define PRIORITY_BOOST_INTERVAL 256
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -124,6 +130,12 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  
+  //MLFQ fields
+  p->priority = 0;          // New processes are added to the highest priority queue (Q0)
+  p->ticks_consumed = 0;    // Ticks consumed at current priority level
+  p->total_ticks = 0;       //Ticks consumed in a lifetime of the process
+  p->wait_ticks = 0;        // Ticks the process has been waiting in a queue
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -414,6 +426,19 @@ kwait(uint64 addr)
   }
 }
 
+//helper function for updating wait_ticks of RUNNABLE processes
+void
+update_wait_ticks(void){
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC];p++){
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      p->wait_ticks++;
+    }
+    release(&p->lock);
+  }
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -421,7 +446,51 @@ kwait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+
 void
+scheduler(void){
+  struct proc *p;
+  struct cpu *c = mycpu();
+
+  c->proc =0;
+  for(;;){
+    intr_on();
+
+    //priority boost to prevent starvation of cpu bound processes
+    if(cpuid() == 0 && (ticks - last_boost_tick >= PRIORITY_BOOST_INTERVAL)){
+      for( p = proc; p < &proc[NPROC];p++){
+        acquire(&p->lock);
+        p->priority = 0;
+        p->ticks_consumed = 0;
+        release(&p->lock);
+      }
+      last_boost_tick = ticks;
+    }
+    
+    int found = 0;  //used to execute preemption and restart process search at Q0
+    for(short prio = 0; prio < 5; prio++){
+      for(p = proc; p < &proc[NPROC]; p++){
+        acquire(&p->lock);
+        if(p->state == RUNNABLE && p->priority == prio){
+          p->state = RUNNING;
+          p->wait_ticks = 0; //reset wait_ticks since its now running
+          c->proc = p;
+          //context switch
+          swtch(&c->context, &p->context);
+          
+          c->proc = 0;
+          found = 1;
+          release(&p->lock);
+          break;
+        }
+        release(&p->lock);
+      }
+    if(found) break;
+    }
+  }
+}
+
+/*void
 scheduler(void)
 {
   struct proc *p;
@@ -460,7 +529,7 @@ scheduler(void)
       asm volatile("wfi");
     }
   }
-}
+}*/
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -661,6 +730,7 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
+//Changed from ^P to ^T due to IDE shortcut conflicts
 // No lock to avoid wedging a stuck machine further.
 void
 procdump(void)
@@ -676,15 +746,15 @@ procdump(void)
   struct proc *p;
   char *state;
 
-  printf("\n");
+  printf("\nPID\tSTATE\tNAME\tPRIO\tTICKS\tWAIT\n");
   for(p = proc; p < &proc[NPROC]; p++){
-    if(p->state == UNUSED)
+    if(p->state == UNUSED){
       continue;
+    }
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
-    printf("\n");
+    printf("%d\t%s\t%s\t%d\t%d\t%d\n", p->pid, state, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
   }
 }
