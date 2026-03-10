@@ -7,8 +7,8 @@
 #include "defs.h"
 
 //MLFQ global variables
-int priority_quanta[]={1,2,4,16,32};
-int last_boost_tick = 0;
+uint priority_quanta[]={4,8,16,32,48};
+uint last_boost_tick;
 extern uint ticks;
 #define PRIORITY_BOOST_INTERVAL 256
 
@@ -426,16 +426,27 @@ kwait(uint64 addr)
   }
 }
 
+//initializes last_boost_tick to current system time to always yield correct interval
+//even after the system has been running for some time
+void
+boostinit(void){
+  acquire(&tickslock);
+  last_boost_tick = ticks;
+  release(&tickslock);
+}
+
 //helper function for updating wait_ticks of RUNNABLE processes
 void
 update_wait_ticks(void){
   struct proc *p;
   for(p = proc; p < &proc[NPROC];p++){
-    acquire(&p->lock);
     if(p->state == RUNNABLE){
-      p->wait_ticks++;
+      acquire(&p->lock);
+      if(p->state == RUNNABLE){
+        p->wait_ticks++;
+      }
+      release(&p->lock);
     }
-    release(&p->lock);
   }
 }
 
@@ -468,13 +479,14 @@ scheduler(void){
     }
     
     int found = 0;  //used to execute preemption and restart process search at Q0
-    for(short prio = 0; prio < 5; prio++){
+    for(int prio = 0; prio < 5; prio++){
       for(p = proc; p < &proc[NPROC]; p++){
         acquire(&p->lock);
         if(p->state == RUNNABLE && p->priority == prio){
           p->state = RUNNING;
-          p->wait_ticks = 0; //reset wait_ticks since its now running
+          if(p->wait_ticks > 0) p->wait_ticks = 0;
           c->proc = p;
+
           //context switch
           swtch(&c->context, &p->context);
           
@@ -487,6 +499,7 @@ scheduler(void){
       }
     if(found) break;
     }
+    if(!found) __asm__("wfi");
   }
 }
 
@@ -746,7 +759,7 @@ procdump(void)
   struct proc *p;
   char *state;
 
-  printf("\nPID\tSTATE\tNAME\tPRIO\tTICKS\tWAIT\n");
+  printf("\nPID\tSTATE\tNAME\tPRIO\tTICKS\tTOTAL\tWAIT\n");
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED){
       continue;
@@ -755,6 +768,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d\t%s\t%s\t%d\t%d\t%d\n", p->pid, state, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+    printf("%d\t%s\t%s\t%d\t%d\t%d\t%d\n", p->pid, state, p->name, p->priority, p->ticks_consumed, p->total_ticks, p->wait_ticks);
   }
+  printf("$ ");
 }

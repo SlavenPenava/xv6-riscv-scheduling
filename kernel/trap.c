@@ -88,6 +88,10 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2){
+    //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
+    //processes that are waiting their turn, can be removed without issues
+    if(cpuid() == 0) update_wait_ticks();
+    
     struct proc *p = myproc();
     //this is demotion and ticks for the running process
     if(p != 0){
@@ -103,12 +107,8 @@ usertrap(void)
         yield();
       }else{
         release(&p->lock);
-        yield();
       }
     }
-    //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
-    //processes that are waiting their turn, can be removed without issues
-    if(cpuid() == 0) update_wait_ticks();
   }
 
   prepare_return();
@@ -180,7 +180,11 @@ kerneltrap()
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2){
-   struct proc *p = myproc();
+   //purely for debugging purposes and only serves to count ticks of all RUNNABLE
+   //processes that are waiting their turn, can be removed without issues
+   if(cpuid() == 0) update_wait_ticks();
+   
+    struct proc *p = myproc();
    //demotion and ticks for the running process
    if(p != 0){
      acquire(&p->lock);
@@ -195,12 +199,8 @@ kerneltrap()
        yield();
      }else{
        release(&p->lock);
-       yield();
      }
    }
-   //purely for debugging purposes and only serves to count ticks of all RUNNABLE
-   //processes that are waiting their turn, can be removed without issues
-   if(cpuid() == 0) update_wait_ticks();
  }
 
   // the yield() may have caused some traps to occur,
