@@ -94,6 +94,7 @@ void            procinit(void);
 //added MLFQ helper functions
 void            boostinit(void);
 void            update_wait_ticks(void);
+
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);

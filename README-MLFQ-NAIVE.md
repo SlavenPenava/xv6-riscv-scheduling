@@ -10,16 +10,18 @@ This branch implements a **5-queue MLFQ scheduler** for the xv6-riscv operating 
  - $Q_2$: 16 ticks
  - $Q_3$: 32 ticks
  - $Q_4$: 48 ticks
-- **Priority boost:** every 256 ticks all processes are moved to $Q_0$ to prevent starvation.
-- **Preemption:** High-priority processes strictly preempt lower-priority ones. The scheduler re-scans the table on every timer interrupt to ensure the highest priority RUNNABLE procces is on the CPU.
+- **Priority boost:** every **256 ticks** all processes are moved to $Q_0$ to prevent starvation.
+- **Preemption:** High-priority processes strictly preempt lower-priority ones. The scheduler re-scans the table on every timer interrupt to ensure the highest priority `RUNNABLE` procces is on the CPU.
 - **Demotion policy:** Ticks are cumulative at each level. If a process exhausts its entire assigned time slice at its current level, it is demoted to the next lower priority queue.
-- **I/O rewards:** Processes that sleep for I/O before exhausting their slice retain the current priority level.
+- **I/O rewards:** Processes that sleep for I/O before exhausting their slice **retain** the current priority level.
 
 ## How to run and log results
-**1. Start xv6 with clean logging**
- - run this from your host terminal to clear the old log (or create new one if its first run) and capture all kernel output (including procdump triggered by ^T):
- > cat /dev/null > scheduler_log.txt && make qemu | tee scheduler_log.txt
-**Run the test**
+### 1. Start xv6 with clean logging
+Run this from your host terminal to clear the old log (or create new one if its first run) and capture all kernel output, including `procdump` triggered by **CTRL+T**:
+```bash
+cat /dev/null > scheduler_log.txt && make qemu | tee scheduler_log.txt
+```
+### 2. Run the test
  - inside xv6 exists a custom "hog" script to simulate cpu bound and quicker processes where usage case is hog <cycles in millions>.
 ## Implementation details
 This is a naive version of the MLFQ:

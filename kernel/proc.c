@@ -7,10 +7,10 @@
 #include "defs.h"
 
 //MLFQ global variables
-uint priority_quanta[]={4,8,16,32,48};
+uint priority_quanta[]={5,10,15,20,25};
 uint last_boost_tick;
 extern uint ticks;
-#define PRIORITY_BOOST_INTERVAL 256
+#define PRIORITY_BOOST_INTERVAL 150
 
 struct cpu cpus[NCPU];
 
@@ -499,50 +499,9 @@ scheduler(void){
       }
     if(found) break;
     }
-    if(!found) __asm__("wfi");
+    if(found == 0) asm volatile("wfi");
   }
 }
-
-/*void
-scheduler(void)
-{
-  struct proc *p;
-  struct cpu *c = mycpu();
-
-  c->proc = 0;
-  for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
-    intr_on();
-    intr_off();
-
-    int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
-      }
-      release(&p->lock);
-    }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
-    }
-  }
-}*/
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
