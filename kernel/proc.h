@@ -110,4 +110,5 @@ struct proc {
   int ticks_consumed;          // Number of ticks consumed by the process at current priority level
   int total_ticks;             // Total number of ticks consumed by the process
   int wait_ticks;              // Number of ticks the process has been waiting in the current queue
+  struct proc *next;           // Pointer to the next process in the current priority queue
 };

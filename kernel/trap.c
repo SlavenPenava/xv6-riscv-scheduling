@@ -87,26 +87,42 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2){
+  /*if(which_dev == 2){
     //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
     //processes that are waiting their turn, can be removed without issues
     if(cpuid() == 0) update_wait_ticks();
     
     struct proc *p = myproc();
     //this is demotion and ticks for the running process
-    if(p != 0){
-      acquire(&p->lock);
+    if(p != 0 && p->state == RUNNING){
       p->ticks_consumed++;
       p->total_ticks++;
       if(p->ticks_consumed >= priority_quanta[p->priority]){
-        if(p->priority < 4){
-          p->priority++;
-        }
-        p->ticks_consumed = 0;
-        release(&p->lock);
+        if(p->priority < 4) p->priority++;
         yield();
-      }else{
-        release(&p->lock);
+      }
+    }
+  }*/
+if(which_dev == 2){
+    if(cpuid() == 0) update_wait_ticks();
+    struct proc *p = myproc();
+    if(p != 0 && p->state == RUNNING){
+      p->ticks_consumed++;
+      p->total_ticks++;
+
+      int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
+      int preempt_needed = has_higher_priority(p->priority);
+
+      if(quantum_expired || preempt_needed){
+        if(quantum_expired){
+          if(p->priority < 4) p->priority++; // Demote to lower priority level
+        }
+        
+        // ALWAYS reset ticks_consumed when leaving the CPU (yield),
+        // whether by quantum expiration OR preemption!
+        p->ticks_consumed = 0; 
+        
+        yield();
       }
     }
   }
@@ -179,29 +195,29 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2){
-   //purely for debugging purposes and only serves to count ticks of all RUNNABLE
-   //processes that are waiting their turn, can be removed without issues
-   if(cpuid() == 0) update_wait_ticks();
-   
+if(which_dev == 2){
+    if(cpuid() == 0) update_wait_ticks();
     struct proc *p = myproc();
-   //demotion and ticks for the running process
-   if(p != 0){
-     acquire(&p->lock);
-     p->ticks_consumed++;
-     p->total_ticks++;
-     if(p->ticks_consumed >= priority_quanta[p->priority]){
-       if(p->priority < 4){
-         p->priority++;
-       }
-       p->ticks_consumed = 0;
-       release(&p->lock);
-       yield();
-     }else{
-       release(&p->lock);
-     }
-   }
- }
+    if(p != 0 && p->state == RUNNING){
+      p->ticks_consumed++;
+      p->total_ticks++;
+
+      int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
+      int preempt_needed = has_higher_priority(p->priority);
+
+      if(quantum_expired || preempt_needed){
+        if(quantum_expired){
+          if(p->priority < 4) p->priority++; // Demote to lower priority level
+        }
+        
+        // ALWAYS reset ticks_consumed when leaving the CPU (yield),
+        // whether by quantum expiration OR preemption!
+        p->ticks_consumed = 0; 
+        
+        yield();
+      }
+    }
+  }
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

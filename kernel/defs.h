@@ -91,11 +91,15 @@ void            setkilled(struct proc*);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            procinit(void);
+void            scheduler(void) __attribute__((noreturn));
 //added MLFQ helper functions
 void            boostinit(void);
 void            update_wait_ticks(void);
+void            enqueue(struct proc *p, int prio);
+void            dequeu(struct proc *p);
+void            priority_boost(void);
+int             has_higher_priority(int current_prio);
 
-void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
