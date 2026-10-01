@@ -8,8 +8,7 @@
 
 //MLFQ
 extern int priority_quanta[];
-//this is purely added for the wait_ticks debugging field and can be removed alongside
-//the wait_ticks block inside usertrap() and kerneltrap()
+
 extern struct proc proc[NPROC];
 
 struct spinlock tickslock;
@@ -87,44 +86,8 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  /*if(which_dev == 2){
-    //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
-    //processes that are waiting their turn, can be removed without issues
-    if(cpuid() == 0) update_wait_ticks();
-    
-    struct proc *p = myproc();
-    //this is demotion and ticks for the running process
-    if(p != 0 && p->state == RUNNING){
-      p->ticks_consumed++;
-      p->total_ticks++;
-      if(p->ticks_consumed >= priority_quanta[p->priority]){
-        if(p->priority < 4) p->priority++;
-        yield();
-      }
-    }
-  }*/
-if(which_dev == 2){
-    if(cpuid() == 0) update_wait_ticks();
-    struct proc *p = myproc();
-    if(p != 0 && p->state == RUNNING){
-      p->ticks_consumed++;
-      p->total_ticks++;
-
-      int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
-      int preempt_needed = has_higher_priority(p->priority);
-
-      if(quantum_expired || preempt_needed){
-        if(quantum_expired){
-          if(p->priority < 4) p->priority++; // Demote to lower priority level
-        }
-        
-        // ALWAYS reset ticks_consumed when leaving the CPU (yield),
-        // whether by quantum expiration OR preemption!
-        p->ticks_consumed = 0; 
-        
-        yield();
-      }
-    }
+  if(which_dev == 2){
+    mlfq_timer_tick();
   }
 
   prepare_return();
@@ -196,27 +159,7 @@ kerneltrap()
 
   // give up the CPU if this is a timer interrupt.
 if(which_dev == 2){
-    if(cpuid() == 0) update_wait_ticks();
-    struct proc *p = myproc();
-    if(p != 0 && p->state == RUNNING){
-      p->ticks_consumed++;
-      p->total_ticks++;
-
-      int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
-      int preempt_needed = has_higher_priority(p->priority);
-
-      if(quantum_expired || preempt_needed){
-        if(quantum_expired){
-          if(p->priority < 4) p->priority++; // Demote to lower priority level
-        }
-        
-        // ALWAYS reset ticks_consumed when leaving the CPU (yield),
-        // whether by quantum expiration OR preemption!
-        p->ticks_consumed = 0; 
-        
-        yield();
-      }
-    }
+    mlfq_timer_tick();
   }
 
   // the yield() may have caused some traps to occur,

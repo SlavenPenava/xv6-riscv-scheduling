@@ -17,3 +17,4 @@ user/usys.S
 .gdbinit
 TAGS
 scheduler_log.txt
+README-MLFQ-NAIVE.md

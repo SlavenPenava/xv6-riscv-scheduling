@@ -241,19 +241,6 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 void
 userinit(void)
 {
-/*  struct proc *p;
-
-  p = allocproc();
-  initproc = p;
-  
-  p->cwd = namei("/");
-
-  p->state = RUNNABLE;
-
-  release(&p->lock);
-  
-  enqueue(p,0);
-  */
  struct proc *p;
  p = allocproc();
  initproc = p;
@@ -291,52 +278,6 @@ growproc(int n)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
-/*int
-kfork(void)
-{
-  int i, pid;
-  struct proc *np;
-  struct proc *p = myproc();
-
-  // Allocate process.
-  if((np = allocproc()) == 0){
-    return -1;
-  }
-
-  // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
-    freeproc(np);
-    release(&np->lock);
-    return -1;
-  }
-  np->sz = p->sz;
-
-  // copy saved user registers.
-  *(np->trapframe) = *(p->trapframe);
-
-  // Cause fork to return 0 in the child.
-  np->trapframe->a0 = 0;
-
-  // increment reference counts on open file descriptors.
-  for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
-      np->ofile[i] = filedup(p->ofile[i]);
-  np->cwd = idup(p->cwd);
-
-  safestrcpy(np->name, p->name, sizeof(p->name));
-
-  pid = np->pid;
-
-  release(&np->lock);
-
-  acquire(&wait_lock);
-  np->parent = p;
-  release(&wait_lock);
-
-  enqueue(np,0);
-
-  return pid;
-}*/
 int
 kfork(void)
 {
@@ -377,15 +318,15 @@ kfork(void)
   np->parent = p;
   release(&wait_lock);
 
-  // 1. Set state to RUNNABLE while holding np->lock
+  // set state to RUNNABLE while holding np->lock
   np->state = RUNNABLE;
   np->priority = 0;
   np->ticks_consumed = 0;
 
-  // 2. Enqueue into Queue 0
+  // enqueue into Queue 0
   enqueue(np, 0);
 
-  // 3. Release np->lock AFTER setting RUNNABLE & enqueuing
+  // release np->lock AFTER setting RUNNABLE & enqueuing
   release(&np->lock);
 
   return pid;
@@ -543,8 +484,8 @@ scheduler(void){
     }
 
     if( p != 0){
-      acquire(&p->lock);
       release(&mlfq_lock);
+      acquire(&p->lock);
 
       if(p->state == RUNNABLE){
         p->state = RUNNING;
@@ -570,7 +511,6 @@ boostinit(void){
   release(&tickslock);
 }
 
-//helper function for updating wait_ticks of RUNNABLE processes
 void
 update_wait_ticks(void){
   struct proc *p;
@@ -588,17 +528,9 @@ update_wait_ticks(void){
 void enqueue(struct proc *p, int prio){
   if(p == 0) panic("enqueue: null proc");
   if(prio < 0 || prio >= QUEUE_NUM) panic("enqueu: invalid prio");
-//  if(p->state != RUNNABLE) panic("enqueue: proc not runnable");
   
   acquire(&mlfq_lock);
-  /*
-  if(p->state != RUNNABLE){
-    release(&p->lock);
-    release(&mlfq_lock);
-    return;
-  }
-  */
-  p->state=RUNNABLE;
+
   p->next = 0;
   p->priority = prio;
   
@@ -643,84 +575,77 @@ void dequeue(struct proc *p){
   }
   panic("dequeu: proc not in queue");
 }
-/*
-void priority_boost(void){
-  struct proc *p;
-  acquire(&mlfq_lock);
 
-  //clear all queues for relink
-  for(int i =0; i < QUEUE_NUM; i++){
-    mlfq_heads[i] = 0;
-    mlfq_tails[i] = 0;
-  }
-  //enqueue all RUNNABLE to queue 0
-  for(p = proc; p < &proc[NPROC]; p++){
-    acquire(&p->lock);
-    p->priority = 0;
-    p->wait_ticks = 0;
-    p->ticks_consumed = 0;
-
-    if(p->state == RUNNABLE){
-      p->next = 0;
-      if(mlfq_tails[0] == 0){
-        mlfq_heads[0] = p;
-      }else{
-        mlfq_tails[0]->next = p;
-      }
-      mlfq_tails[0] = p;
-    }
-    release(&p->lock);
-  }
-  release(&mlfq_lock);
-}*/
 void
-priority_boost(void){
-  struct proc *p;
+priority_boost(void)
+{
   acquire(&mlfq_lock);
-
-  //clear all queues
+  // clear queue heads and tails
   for(int i = 0; i < QUEUE_NUM; i++){
     mlfq_heads[i] = 0;
     mlfq_tails[i] = 0;
   }
-  //relink all RUNNABLE to queue 0
+  release(&mlfq_lock);
+
+  // relink RUNNABLE processes adhering to lock order: p->lock -> mlfq_lock
+  struct proc *p;
   for (p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
-
     if(p->state == RUNNABLE){
       p->priority = 0;
       p->ticks_consumed = 0;
-      p->next = 0;
-      if(mlfq_heads[0] == 0){
-        mlfq_heads[0] = p;
-        mlfq_tails[0] = p;
-      }else{
-        mlfq_tails[0]->next = p;
-        mlfq_tails[0] = p;
-      }
-    }else if(p->state == RUNNING){
+      enqueue(p, 0); // enqueue internally acquires mlfq_lock
+    } else if(p->state == RUNNING){
       p->priority = 0;
       p->ticks_consumed = 0;
     }
     release(&p->lock);
   }
-  release(&mlfq_lock);
 }
+
 int
-has_higher_priority(int current_prio){
+has_higher_priority(int current_prio)
+{
   struct proc *p = myproc();
   int should_preempt = 0;
+
   acquire(&mlfq_lock);
-  for(int i = 0; i < current_prio - 1; i++){
+  for(int i = 0; i < current_prio; i++){
     if(mlfq_heads[i] != 0){
-      release(&mlfq_lock);
       should_preempt = 1;
       break;
     }
   }
   release(&mlfq_lock);
-  if(should_preempt && p !=0) printf("Preempting PID %d (prio %d)\n", p->pid, p->priority);
+
+  if(should_preempt && p != 0) 
+    printf("Preempting PID %d (prio %d)\n", p->pid, p->priority);
   return should_preempt;
+}
+//helper to handle timer ticks centrally for both usertrap and kerneltrap
+void
+mlfq_timer_tick(void)
+{
+  if(cpuid() == 0) 
+    update_wait_ticks();
+
+  struct proc *p = myproc();
+  if(p != 0 && p->state == RUNNING){
+    p->ticks_consumed++;
+    p->total_ticks++;
+
+    int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
+    int preempt_needed = has_higher_priority(p->priority);
+
+    if(quantum_expired || preempt_needed){
+      if(quantum_expired){
+        if(p->priority < QUEUE_NUM - 1) 
+          p->priority++; // demote to lower priority level
+        p->ticks_consumed = 0; //reset slice only upon quantum expiry
+      }
+      yield();
+    }
+  }
 }
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -750,65 +675,21 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
-/*void
-yield(void)
-{
-  struct proc *p = myproc();
-
-  enqueue(p,p->priority);
-  
-  acquire(&p->lock);
-  p->state = RUNNABLE;
-  sched();
-  release(&p->lock);*/
- /*struct proc *p = myproc();
- 
- acquire(&p->lock);
- p->state=RUNNABLE;
- release(&p->lock);
-
-  enqueue(p, p->priority);
-
-  acquire(&p->lock);
-  sched();
-  release(&p->lock);
-  */
-  
-  /*struct proc *p = myproc();
-  acquire(&p->lock);
-  p->ticks_consumed = 0;
-  p->state = RUNNABLE;
-  enqueue(p,p->priority);
-  sched();
-  release(&p->lock);*/
-//}
 void
 yield(void)
 {
   struct proc *p = myproc();
-
-  acquire(&p->lock);         // acquire p->lock (noff = 1)
   
-  p->state = RUNNABLE;       // mark process as RUNNABLE
+  acquire(&p->lock);
+  p->state = RUNNABLE;
 
-  acquire(&mlfq_lock);       // acquire mlfq_lock (noff = 2)
+  // enqueue safely under p->lock
+  enqueue(p, p->priority);
 
-  // safely enqueue into MLFQ queue (p->priority)
-  p->next = 0;
-  int prio = p->priority;
-  if(mlfq_heads[prio] == 0) {
-    mlfq_heads[prio] = p;
-    mlfq_tails[prio] = p;
-  } else {
-    mlfq_tails[prio]->next = p;
-    mlfq_tails[prio] = p;
-  }
+  // p->lock is handed off to sched()
+  sched();
 
-  release(&mlfq_lock);       // release mlfq_lock BEFORE calling sched()! (noff = 1)
-
-  sched();                   // context switch back to scheduler() holding ONLY p->lock
-
-  release(&p->lock);         // runs when process is resumed later by scheduler()
+  release(&p->lock);
 }
 // A fork child's very first scheduling by scheduler()
 // will swtch to forkret.
@@ -880,98 +761,37 @@ sleep(void *chan, struct spinlock *lk)
 
 // Wake up all processes sleeping on channel chan.
 // Caller should hold the condition lock.
-/*void
-wakeup(void *chan)
-{
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
-        release(&p->lock);
-        enqueue(p,p->priority);
-        continue;
-      }
-      release(&p->lock);
-    }
-  }
-}*/
-/*void
-wakeup(void *chan)
-{
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&mlfq_lock);
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
-        p->ticks_consumed = 0; // interactive task time slice reset
-
-        p->next = 0;
-        int prio = p->priority;
-        if(mlfq_heads[prio] == 0){
-          mlfq_heads[prio] = p;
-          mlfq_tails[prio] = p;
-        } else {
-          mlfq_tails[prio]->next = p;
-          mlfq_tails[prio] = p;
-        }
-      }
-      release(&p->lock);
-      release(&mlfq_lock);
-    }
-  }
-}*/
-/*void
-wakeup(void *chan)
-{
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        acquire(&mlfq_lock); // Acquire mlfq_lock INSIDE after p->lock!
-
-        p->state = RUNNABLE;
-        p->priority = 0;       // Reset to Queue 0 for I/O tasks
-        p->ticks_consumed = 0;
-
-        p->next = 0;
-        int prio = p->priority;
-        if(mlfq_heads[prio] == 0){
-          mlfq_heads[prio] = p;
-          mlfq_tails[prio] = p;
-        } else {
-          mlfq_tails[prio]->next = p;
-          mlfq_tails[prio] = p;
-        }
-
-        release(&mlfq_lock);
-      }
-      release(&p->lock);
-    }
-  }
-}*/
 void
 wakeup(void *chan)
 {
   struct proc *p;
 
   for(p = proc; p < &proc[NPROC]; p++) {
-    if(p != myproc()){
-      acquire(&p->lock);
-      if(p->state == SLEEPING && p->chan == chan) {
-        p->state = RUNNABLE;
-        p->priority = 0;
-        p->ticks_consumed = 0;
+    if(p == myproc())
+      continue;
 
-        enqueue(p, 0);         
+    acquire(&p->lock);
+    if(p->state == SLEEPING && p->chan == chan) {
+      p->state = RUNNABLE;
+      p->chan = 0;
+      p->priority = 0;
+      p->ticks_consumed = 0;
+      p->wait_ticks = 0;
+
+      acquire(&mlfq_lock);
+      
+      p->next = 0;
+      if(mlfq_heads[0] == 0) {
+        mlfq_heads[0] = p;
+        mlfq_tails[0] = p;
+      } else {
+        mlfq_tails[0]->next = p;
+        mlfq_tails[0] = p;
       }
+
+      release(&mlfq_lock);
+      release(&p->lock);
+    } else {
       release(&p->lock);
     }
   }

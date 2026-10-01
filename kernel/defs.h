@@ -99,6 +99,7 @@ void            enqueue(struct proc *p, int prio);
 void            dequeu(struct proc *p);
 void            priority_boost(void);
 int             has_higher_priority(int current_prio);
+void            mlfq_timer_tick(void);
 
 void            sched(void);
 void            sleep(void*, struct spinlock*);
