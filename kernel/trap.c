@@ -174,6 +174,11 @@ clockintr()
   if(cpuid() == 0){
     acquire(&tickslock);
     ticks++;
+/*
+    struct proc *p = myproc();
+    if(p != 0 && p->state == RUNNING && p->pid >=3)
+      printf("CSV,%d,%d,%s,%d,%d,%d\n", ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+*/
     wakeup(&ticks);
     release(&tickslock);
   }

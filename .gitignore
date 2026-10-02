@@ -18,3 +18,4 @@ user/usys.S
 TAGS
 scheduler_log.txt
 README-MLFQ-NAIVE.md
+mlfq_output.log

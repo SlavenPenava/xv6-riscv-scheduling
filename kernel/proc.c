@@ -10,7 +10,7 @@
 uint priority_quanta[]={2,4,8,16,24};
 uint last_boost_tick;
 extern uint ticks;
-#define PRIORITY_BOOST_INTERVAL 70
+#define PRIORITY_BOOST_INTERVAL 110
 #define QUEUE_NUM 5
 struct proc *mlfq_heads[QUEUE_NUM];
 struct proc *mlfq_tails[QUEUE_NUM];
@@ -489,7 +489,14 @@ scheduler(void){
 
       if(p->state == RUNNABLE){
         p->state = RUNNING;
+        p->wait_ticks = 0;
+
         c->proc = p;
+        //event driven logging, REMOVE BEFORE FINAL VERSION!!
+        if(p->pid >= 4) {
+        printf("CSV,%d,%d,%s,%d,%d,%d,RUN\n", 
+               ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+        }
 
         swtch(&c->context, &p->context);
 
@@ -543,7 +550,7 @@ void enqueue(struct proc *p, int prio){
   }
   release(&mlfq_lock);
 }
-
+/*
 void dequeue(struct proc *p){
   if(p == 0) panic("dequeue: null proc");
 
@@ -575,7 +582,42 @@ void dequeue(struct proc *p){
   }
   panic("dequeu: proc not in queue");
 }
+*/
+void dequeue(struct proc *p){
+  if(p == 0) panic("dequeue: null proc");
 
+  acquire(&mlfq_lock);
+
+  int prio = p->priority;
+  if(prio < 0 || prio >=  QUEUE_NUM) {
+    release(&mlfq_lock);
+    return;
+  }
+
+  struct proc * prev = 0;
+  struct proc *cur = mlfq_heads[prio];
+
+  while(cur){
+    if(cur == p){
+      if(prev)
+        prev->next = cur->next;
+      else
+        mlfq_heads[prio] = cur->next;
+
+      if(mlfq_tails[prio] == cur) 
+        mlfq_tails[prio] = prev;
+
+      cur->next = 0;
+      release(&mlfq_lock);
+      return;
+    }
+    prev = cur;
+    cur = cur->next;
+  }
+  
+  release(&mlfq_lock);
+}
+/*
 void
 priority_boost(void)
 {
@@ -587,7 +629,7 @@ priority_boost(void)
   }
   release(&mlfq_lock);
 
-  // relink RUNNABLE processes adhering to lock order: p->lock -> mlfq_lock
+  // relink RUNNABLE processes
   struct proc *p;
   for (p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
@@ -601,12 +643,52 @@ priority_boost(void)
     }
     release(&p->lock);
   }
+}*/
+void
+priority_boost(void)
+{
+  // 1. Prvo uzimamo mlfq_lock za cijeli proces relinkanja
+  acquire(&mlfq_lock);
+
+  // Ocisti sve glave i repove redova
+  for(int i = 0; i < QUEUE_NUM; i++){
+    mlfq_heads[i] = 0;
+    mlfq_tails[i] = 0;
+  }
+
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++){
+    // 2. Unutar mlfq_lock-a uzimamo p->lock (ispravan redoslijed: mlfq_lock -> p->lock)
+    acquire(&p->lock);
+    
+    if(p->state != UNUSED) {
+      // Svim živim procesima (uključujući SLEEPING i RUNNING) resetiramo prioritet
+      p->priority = 0;
+      p->ticks_consumed = 0;
+      p->next = 0; // Čistimo stari pokazivač lančane liste
+
+      // Samo RUNNABLE procese vraćamo u Red 0
+      if(p->state == RUNNABLE){
+        if(mlfq_tails[0] == 0) {
+          mlfq_heads[0] = p;
+          mlfq_tails[0] = p;
+        } else {
+          mlfq_tails[0]->next = p;
+          mlfq_tails[0] = p;
+        }
+      }
+    }
+    
+    release(&p->lock);
+  }
+
+  release(&mlfq_lock);
 }
 
 int
 has_higher_priority(int current_prio)
 {
-  struct proc *p = myproc();
+ // struct proc *p = myproc();
   int should_preempt = 0;
 
   acquire(&mlfq_lock);
@@ -618,10 +700,35 @@ has_higher_priority(int current_prio)
   }
   release(&mlfq_lock);
 
-  if(should_preempt && p != 0) 
-    printf("Preempting PID %d (prio %d)\n", p->pid, p->priority);
+  //if(should_preempt && p != 0) 
+    //printf("Preempting PID %d (prio %d)\n", p->pid, p->priority);
   return should_preempt;
 }
+//helper to handle timer ticks centrally for both usertrap and kerneltrap
+/*void
+mlfq_timer_tick(void)
+{
+  if(cpuid() == 0) 
+    update_wait_ticks();
+
+  struct proc *p = myproc();
+  if(p != 0 && p->state == RUNNING){
+    p->ticks_consumed++;
+    p->total_ticks++;
+
+    int quantum_expired = (p->ticks_consumed >= priority_quanta[p->priority]);
+    int preempt_needed = has_higher_priority(p->priority);
+
+    if(quantum_expired || preempt_needed){
+      if(quantum_expired){
+        if(p->priority < QUEUE_NUM) 
+          p->priority++; // demote to lower priority level
+        p->ticks_consumed = 0; //reset slice only upon quantum expiry
+      }
+      yield();
+    }
+  }
+}*/
 //helper to handle timer ticks centrally for both usertrap and kerneltrap
 void
 mlfq_timer_tick(void)
@@ -639,10 +746,14 @@ mlfq_timer_tick(void)
 
     if(quantum_expired || preempt_needed){
       if(quantum_expired){
-        if(p->priority < QUEUE_NUM - 1) 
-          p->priority++; // demote to lower priority level
-        p->ticks_consumed = 0; //reset slice only upon quantum expiry
-      }
+        // pomicanje u nizi red, ali uz strogu zastitu da ne prede zadnji red
+        if(p->priority < QUEUE_NUM - 1) {
+          p->priority++;
+        } else {
+          p->priority = QUEUE_NUM - 1; //ostaje na najnižem redu
+        }
+        p->ticks_consumed = 0; //resetiramo tickove samo kad istekne kvantum
+      }      
       yield();
     }
   }
@@ -730,24 +841,19 @@ forkret(void)
 
 // Sleep on channel chan, releasing condition lock lk.
 // Re-acquires lk when awakened.
-void
+/*void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
-  // Must acquire p->lock in order to
-  // change p->state and then call sched.
-  // Once we hold p->lock, we can be
-  // guaranteed that we won't miss any wakeup
-  // (wakeup locks p->lock),
-  // so it's okay to release lk.
 
-  acquire(&p->lock);  //DOC: sleeplock1
+  acquire(&p->lock);
   release(lk);
 
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
+
+  dequeue(p);
 
   sched();
 
@@ -755,12 +861,67 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = 0;
 
   // Reacquire original lock.
-  release(&p->lock);
   acquire(lk);
-}
+}*/
+void
+sleep(void *chan, struct spinlock *lk)
+{
+  struct proc *p = myproc();
 
-// Wake up all processes sleeping on channel chan.
-// Caller should hold the condition lock.
+  // Ako lk nije p->lock, zaključaj p->lock i pusti lk
+  if(lk != &p->lock){
+    acquire(&p->lock);
+    release(lk);
+  }
+
+  // Idi na spavanje
+  p->chan = chan;
+  p->state = SLEEPING;
+  //event driven logging, REMOVE IN FINAL VERSION
+  if(p->pid >= 4) {
+    printf("CSV,%d,%d,%s,%d,%d,%d,SLEEP\n", 
+           ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+  }
+
+  // Izbaci proces iz MLFQ reda
+  dequeue(p);
+
+  // Prepusti CPU scheduleru
+  sched();
+
+  // Čišćenje nakon buđenja
+  p->chan = 0;
+
+  // Vrati originale lokove
+  if(lk != &p->lock){
+    release(&p->lock);
+    acquire(lk);
+  }
+}
+/*
+void
+wakeup(void *chan)
+{
+  struct proc *p;
+  
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p == myproc())
+      continue;
+
+    acquire(&p->lock);
+    if(p->state == SLEEPING && p->chan == chan) {
+      p->state = RUNNABLE;
+      p->chan = 0;
+      p->priority = 0;
+      p->ticks_consumed = 0;
+      p->wait_ticks = 0;
+
+      enqueue(p,p->priority);
+
+    }
+    release(&p->lock);
+  }
+}*/
 void
 wakeup(void *chan)
 {
@@ -778,19 +939,9 @@ wakeup(void *chan)
       p->ticks_consumed = 0;
       p->wait_ticks = 0;
 
-      acquire(&mlfq_lock);
-      
-      p->next = 0;
-      if(mlfq_heads[0] == 0) {
-        mlfq_heads[0] = p;
-        mlfq_tails[0] = p;
-      } else {
-        mlfq_tails[0]->next = p;
-        mlfq_tails[0] = p;
-      }
-
-      release(&mlfq_lock);
+      // Otpuštamo p->lock PRIJE enqueue da izbjegnemo deadlock s mlfq_lock-om
       release(&p->lock);
+      enqueue(p, 0);
     } else {
       release(&p->lock);
     }
