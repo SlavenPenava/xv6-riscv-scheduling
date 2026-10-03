@@ -7,10 +7,10 @@
 #include "defs.h"
 
 //MLFQ global variables
-uint priority_quanta[]={5,10,15,20,25};
+uint priority_quanta[]={2,4,8,16,24};
 uint last_boost_tick;
 extern uint ticks;
-#define PRIORITY_BOOST_INTERVAL 150
+#define PRIORITY_BOOST_INTERVAL 110
 
 struct cpu cpus[NCPU];
 
@@ -486,6 +486,11 @@ scheduler(void){
           p->state = RUNNING;
           if(p->wait_ticks > 0) p->wait_ticks = 0;
           c->proc = p;
+          //event driven logging, REMOVE IN FINAL VERSION
+          if(p->pid >= 4) {
+              printf("CSV,%d,%d,%s,%d,%d,%d,RUN\n", 
+               ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+              }
 
           //context switch
           swtch(&c->context, &p->context);
@@ -598,6 +603,12 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
+
+  //event driven logging, REMOVE IN FINAL VERSION
+  if(p->pid >= 4) {
+    printf("CSV,%d,%d,%s,%d,%d,%d,SLEEP\n", 
+           ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
+  }
 
   sched();
 
