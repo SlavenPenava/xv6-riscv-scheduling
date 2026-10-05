@@ -8,8 +8,6 @@
 
 //MLFQ
 extern int priority_quanta[];
-//this is purely added for the wait_ticks debugging field and can be removed alongside
-//the wait_ticks block inside usertrap() and kerneltrap()
 extern struct proc proc[NPROC];
 
 struct spinlock tickslock;
@@ -88,8 +86,7 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2){
-    //this is purely for debugging purposes and only serves to count ticks of all RUNNABLE
-    //processes that are waiting their turn, can be removed without issues
+    //count ticks of all RUNNABLE processes that are waiting their turn
     if(cpuid() == 0) update_wait_ticks();
     
     struct proc *p = myproc();
@@ -180,8 +177,7 @@ kerneltrap()
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2){
-   //purely for debugging purposes and only serves to count ticks of all RUNNABLE
-   //processes that are waiting their turn, can be removed without issues
+   //ount ticks of all RUNNABLE processes that are waiting their turn
    if(cpuid() == 0) update_wait_ticks();
    
     struct proc *p = myproc();

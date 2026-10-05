@@ -486,7 +486,7 @@ scheduler(void){
           p->state = RUNNING;
           if(p->wait_ticks > 0) p->wait_ticks = 0;
           c->proc = p;
-          //event driven logging, REMOVE IN FINAL VERSION
+          //event driven logging
           if(p->pid >= 4) {
               printf("CSV,%d,%d,%s,%d,%d,%d,RUN\n", 
                ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
@@ -604,7 +604,7 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = chan;
   p->state = SLEEPING;
 
-  //event driven logging, REMOVE IN FINAL VERSION
+  //event driven logging
   if(p->pid >= 4) {
     printf("CSV,%d,%d,%s,%d,%d,%d,SLEEP\n", 
            ticks, p->pid, p->name, p->priority, p->ticks_consumed, p->wait_ticks);
